@@ -1,0 +1,36 @@
+[project]
+name = "gfslib"
+version = "0.1.0"
+packages = [{ include = "gfslib", from = "src" }]
+description = "Python library for communication to the GeMMA Fusion Server"
+authors = [
+    {name = "Mitko Nikov",email = "mitko.nikov@student.um.si"}
+]
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "requests (>=2.32.5,<3.0.0)"
+]
+dynamic = [ "classifiers" ]
+
+[project.urls]
+homepage = "https://github.com/mitkonikov/gfslib"
+repository = "https://github.com/mitkonikov/gfslib"
+documentation = "https://github.com/mitkonikov/gfslib"
+"Bug Tracker" = "https://github.com/mitkonikov/gfslib/issues"
+
+[tool.poetry]
+classifiers = [
+    "Topic :: Software Development :: Libraries :: Python Modules"
+]
+
+[tool.poetry.group.dev.dependencies]
+mypy = "^1.19.1"
+black = "^25.12.0"
+pytest = "^9.0.2"
+types-requests = "^2.32.4.20260107"
+python-dotenv = "^1.2.1"
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
