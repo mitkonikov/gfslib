@@ -1,0 +1,38 @@
+site_name: GFSLib
+site_description: Python library for communication with GeMMA Fusion Server
+site_url: https://mitkonikov.github.io/gfslib/
+repo_url: https://github.com/mitkonikov/gfslib
+repo_name: mitkonikov/gfslib
+
+theme:
+  name: material
+  features:
+    - navigation.sections
+    - navigation.expand
+    - search.suggest
+    - content.code.copy
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: [src]
+          options:
+            show_source: false
+            show_root_heading: true
+            show_if_no_docstring: true
+
+markdown_extensions:
+  - admonition
+  - toc:
+      permalink: true
+  - pymdownx.highlight
+  - pymdownx.superfences
+
+nav:
+  - Home: index.md
+  - Getting Started: getting-started.md
+  - Storage Guide: storage-guide.md
+  - API:
+      - StorageServices: api/storage.md
