@@ -16,7 +16,19 @@ svc.set_api_key("your_api_key")
 ```python
 short = svc.ls()
 long = svc.ls_long()
+
+# List inside a folder
+folder = svc.ls(path="sync-tests", recursive=False, include_directories=True)
+
+# Recursive listing including subfolders
+tree = svc.ls_long(path="sync-tests", recursive=True, include_directories=True)
 ```
+
+`ls()` and `ls_long()` both accept these optional parameters:
+
+- `path`: list a specific remote folder or prefix
+- `recursive`: include nested files and folders
+- `include_directories`: include directory entries in the response when supported by the server
 
 ## Upload a file
 

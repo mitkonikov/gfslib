@@ -162,7 +162,7 @@ def test_integration_sync_files() -> None:
         assert "sub/two.txt" in res
 
         # verify via ls that remote files exist
-        ls_resp = svc.ls()
+        ls_resp = svc.ls(path="/", recursive=True, include_directories=False)
         assert ls_resp.status_code == 200
         try:
             listing = ls_resp.json()
@@ -285,3 +285,86 @@ def test_integration_sync_skips_on_sha2() -> None:
         # Cleanup
         d = svc.delete(remote_path)
         assert d.status_code in (200, 204)
+
+
+@pytest.mark.integration
+def test_integration_folder_listings_with_query_params() -> None:
+    url, key = _skip_unless_env()
+
+    svc = StorageServices(url)
+    svc.set_api_key(key)
+
+    with tempfile.TemporaryDirectory() as td:
+        base = Path(td) / "folder"
+        (base / "sub").mkdir(parents=True)
+
+        files = {
+            "root.txt": "root-content",
+            "sub/nested.txt": "nested-content",
+        }
+
+        for rel, content in files.items():
+            p = base / Path(rel)
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(content)
+
+        remote_root = "listing-tests/folder"
+        remote_paths = []
+        for rel in files:
+            rel_norm = rel.replace("\\", "/")
+            remote = f"{remote_root}/{rel_norm}"
+            up = svc.upload(remote, str(base / Path(rel)))
+            assert up.status_code in (200, 201, 204)
+            remote_paths.append(remote)
+
+        def _normalize_listing(payload: Any) -> set[str]:
+            found: set[str] = set()
+
+            def _add(value: Any) -> None:
+                if isinstance(value, str):
+                    found.add(value.replace("\\", "/"))
+                elif isinstance(value, dict):
+                    for key in ("Path", "path", "Name", "name", "File", "file"):
+                        raw = value.get(key)
+                        if isinstance(raw, str):
+                            found.add(raw.replace("\\", "/"))
+                    # also recurse into nested values if present
+                    for nested in value.values():
+                        if isinstance(nested, (str, dict, list)):
+                            _add(nested)
+                elif isinstance(value, list):
+                    for item in value:
+                        _add(item)
+
+            _add(payload)
+            return found
+
+        short_listing = svc.ls(
+            path=remote_root, recursive=False, include_directories=True
+        )
+        assert short_listing.status_code == 200
+        short_found = _normalize_listing(short_listing.json())
+        assert any(p.endswith("listing-tests/folder/root.txt") for p in short_found)
+        assert short_found
+
+        long_recursive = svc.ls_long(
+            path=remote_root, recursive=True, include_directories=True
+        )
+        assert long_recursive.status_code == 200
+        recursive_found = _normalize_listing(long_recursive.json())
+        assert any(p.endswith("listing-tests/folder/root.txt") for p in recursive_found)
+        assert any(
+            p.endswith("listing-tests/folder/sub/nested.txt") for p in recursive_found
+        )
+
+        sub_listing = svc.ls_long(
+            path=f"{remote_root}/sub", recursive=False, include_directories=True
+        )
+        assert sub_listing.status_code == 200
+        sub_found = _normalize_listing(sub_listing.json())
+        assert any(p.endswith("listing-tests/folder/sub/nested.txt") for p in sub_found)
+        assert sub_found
+
+        for remote in remote_paths:
+            d = svc.delete(remote)
+            assert d.status_code in (200, 204)

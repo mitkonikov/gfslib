@@ -51,15 +51,39 @@ class StorageServices:
         rp = remote_path.lstrip("/")
         return f"{self.base_url}/files/{quote(rp, safe='/') }"
 
-    def ls(self) -> requests.Response:
+    def ls(
+        self,
+        path: Optional[str] = None,
+        recursive: bool = False,
+        include_directories: bool = False,
+    ) -> requests.Response:
         """List remote files (short). Returns the requests.Response object."""
         url = f"{self.base_url}/ls"
-        return requests.get(url, headers=self._headers(), timeout=self.timeout)
+        params: Dict[str, str] = {}
+        if path is not None:
+            params["path"] = path
+        params["recursive"] = str(recursive).lower()
+        params["includeDirectories"] = str(include_directories).lower()
+        return requests.get(
+            url, headers=self._headers(), params=params, timeout=self.timeout
+        )
 
-    def ls_long(self) -> requests.Response:
+    def ls_long(
+        self,
+        path: Optional[str] = None,
+        recursive: bool = False,
+        include_directories: bool = False,
+    ) -> requests.Response:
         """List remote files (long). Returns the requests.Response object."""
         url = f"{self.base_url}/ls/long"
-        return requests.get(url, headers=self._headers(), timeout=self.timeout)
+        params: Dict[str, str] = {}
+        if path is not None:
+            params["path"] = path
+        params["recursive"] = str(recursive).lower()
+        params["includeDirectories"] = str(include_directories).lower()
+        return requests.get(
+            url, headers=self._headers(), params=params, timeout=self.timeout
+        )
 
     def upload(
         self, remote_path: str, data: bytes | str | os.PathLike[str]
