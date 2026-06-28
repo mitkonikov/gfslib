@@ -44,6 +44,13 @@ content = svc.download("folder/sample.txt")
 
 # write directly to disk
 svc.download("folder/sample.txt", "downloaded/sample.txt")
+
+# download multiple files into a folder
+paths = [
+    "folder/sample.txt",
+    "folder/sub/other.txt",
+]
+svc.download(paths, dest="./downloads")
 ```
 
 ## Metadata

@@ -58,7 +58,7 @@ to ensure that everything is according to the guidelines:
 ```sh
 mypy . --strict
 black .
-pytest .
+pytest --cov=src .
 ```
 
 Guidelines are now checked using GitHub Workflows.

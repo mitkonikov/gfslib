@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) but modified for easier processing,
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Added
+
+ - Support for downloading multiple files in a single request.
+ - Add pytest-cov as a development dependency for code coverage reporting.
+
 ## Release 0.2.0 - 2026-05-14
 
 ### Added

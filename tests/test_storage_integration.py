@@ -368,3 +368,48 @@ def test_integration_folder_listings_with_query_params() -> None:
         for remote in remote_paths:
             d = svc.delete(remote)
             assert d.status_code in (200, 204)
+
+
+@pytest.mark.integration
+def test_integration_download_multiple_files() -> None:
+    url, key = _skip_unless_env()
+
+    svc = StorageServices(url)
+    svc.set_api_key(key)
+
+    with tempfile.TemporaryDirectory() as td:
+        base = Path(td) / "multi_download"
+        base.mkdir()
+
+        files = {
+            "a.txt": "alpha",
+            "sub/b.txt": "beta",
+            "deep/c/d.txt": "gamma",
+            "x.bin": "bin-data",
+        }
+
+        remote_paths = []
+        for rel, content in files.items():
+            p = base / Path(rel)
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(content)
+            rel_norm = rel.replace("\\", "/")
+            remote = f"download-tests/{rel_norm}"
+            up = svc.upload(remote, str(p))
+            assert up.status_code in (200, 201, 204)
+            remote_paths.append(remote)
+
+        out_dir = Path(td) / "out"
+        out_dir.mkdir()
+        results = svc.download(remote_paths, dest=str(out_dir))
+        assert isinstance(results, list)
+        assert len(results) == len(remote_paths)
+
+        for rel, content in files.items():
+            out_path = out_dir / Path(rel)
+            assert out_path.exists()
+            assert out_path.read_text() == content
+
+        for remote in remote_paths:
+            d = svc.delete(remote)
+            assert d.status_code in (200, 204)
