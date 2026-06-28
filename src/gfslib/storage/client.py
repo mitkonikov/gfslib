@@ -177,17 +177,6 @@ class StorageServices:
         write_chunk_size: int,
         validate_paths: bool,
     ) -> List[Dict[str, Any]]:
-        def common_prefix(paths: List[str]) -> str:
-            if not paths:
-                return ""
-            norm = [p.replace("\\", "/").lstrip("/") for p in paths]
-            prefix = os.path.commonprefix(norm)
-            if "/" not in prefix:
-                return ""
-            if not prefix.endswith("/"):
-                prefix = prefix[: prefix.rfind("/") + 1]
-            return prefix
-
         url = f"{self.base_url}/download"
         if ignore_sha:
             url = f"{url}?ignoreSha=True"
@@ -209,13 +198,11 @@ class StorageServices:
         )
         resp.raise_for_status()
         resp.raw.decode_content = True
-        base_prefix = common_prefix(remote_paths)
         return self._deserialize_stream_to_files(
             resp.raw,
             dest_dir=dest_dir,
             write_chunk_size=write_chunk_size,
             validate_paths=validate_paths,
-            base_prefix=base_prefix,
         )
 
     def _deserialize_stream_to_files(
@@ -224,7 +211,6 @@ class StorageServices:
         dest_dir: os.PathLike[str] | str,
         write_chunk_size: int,
         validate_paths: bool,
-        base_prefix: str,
     ) -> List[Dict[str, Any]]:
         out_dir = os.fspath(dest_dir)
         if not os.path.isdir(out_dir):
@@ -289,9 +275,7 @@ class StorageServices:
             validate_path(path)
             size = int(meta.get("Size", 0))
 
-            rel_path = path.lstrip("/").replace("\\", "/")
-            if base_prefix and rel_path.startswith(base_prefix):
-                rel_path = rel_path[len(base_prefix) :]
+            rel_path = os.path.basename(path.lstrip("/").replace("\\", "/"))
             out_path = os.path.join(out_dir, rel_path)
             os.makedirs(os.path.dirname(out_path) or out_dir, exist_ok=True)
 
