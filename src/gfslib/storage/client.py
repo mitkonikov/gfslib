@@ -115,15 +115,36 @@ class StorageServices:
 
     def download(
         self,
-        remote_path: str,
+        remote_path: str | List[str],
         dest: Optional[os.PathLike[str] | str] = None,
         byte_range: Optional[Tuple[int, Optional[int]]] = None,
-    ) -> bytes:
-        """Download a file. If `byte_range` provided, send Range header as (start, end).
+        ignore_sha: bool = False,
+        write_chunk_size: int = 10 * 1024 * 1024,
+        validate_paths: bool = True,
+    ) -> bytes | List[Dict[str, Any]]:
+        """Download a file or multiple files.
 
-        If `dest` is provided the content is written to that path and an empty bytes
-        object is returned; otherwise the file bytes are returned.
+        If the remote path is a single string, a single file will be downloaded
+        and returned as bytes (or written to `dest` if provided).
+
+        For multiple files, pass a list of strings in `remote_path` and provide
+        `dest` as a destination folder. The server returns a stream in the form
+        <METADATA_JSON><FILE><METADATA_JSON><FILE> and the files are written
+        into `dest`.
         """
+        if isinstance(remote_path, list):
+            if dest is None:
+                raise ValueError(
+                    "dest must be provided when downloading multiple files"
+                )
+            return self._download_many(
+                remote_path,
+                dest_dir=dest,
+                ignore_sha=ignore_sha,
+                write_chunk_size=write_chunk_size,
+                validate_paths=validate_paths,
+            )
+
         url = self._file_url(remote_path)
         headers = self._headers()
         if byte_range is not None:
@@ -147,6 +168,168 @@ class StorageServices:
 
         # collect into bytes
         return resp.content
+
+    def _download_many(
+        self,
+        remote_paths: List[str],
+        dest_dir: os.PathLike[str] | str,
+        ignore_sha: bool,
+        write_chunk_size: int,
+        validate_paths: bool,
+    ) -> List[Dict[str, Any]]:
+        def common_prefix(paths: List[str]) -> str:
+            if not paths:
+                return ""
+            norm = [p.replace("\\", "/").lstrip("/") for p in paths]
+            prefix = os.path.commonprefix(norm)
+            if "/" not in prefix:
+                return ""
+            if not prefix.endswith("/"):
+                prefix = prefix[: prefix.rfind("/") + 1]
+            return prefix
+
+        url = f"{self.base_url}/download"
+        if ignore_sha:
+            url = f"{url}?ignoreSha=True"
+
+        body = json.dumps(list(remote_paths))
+        headers = self._headers(
+            {
+                "Content-Type": "application/json",
+                "Content-Length": str(len(body)),
+                "Accept-Encoding": "gzip, deflate, br",
+            }
+        )
+        resp = requests.post(
+            url,
+            headers=headers,
+            data=body.encode("utf-8"),
+            stream=True,
+            timeout=self.timeout,
+        )
+        resp.raise_for_status()
+        resp.raw.decode_content = True
+        base_prefix = common_prefix(remote_paths)
+        return self._deserialize_stream_to_files(
+            resp.raw,
+            dest_dir=dest_dir,
+            write_chunk_size=write_chunk_size,
+            validate_paths=validate_paths,
+            base_prefix=base_prefix,
+        )
+
+    def _deserialize_stream_to_files(
+        self,
+        stream: Any,
+        dest_dir: os.PathLike[str] | str,
+        write_chunk_size: int,
+        validate_paths: bool,
+        base_prefix: str,
+    ) -> List[Dict[str, Any]]:
+        out_dir = os.fspath(dest_dir)
+        if not os.path.isdir(out_dir):
+            raise ValueError("Output folder does not exist")
+
+        meta_size = 1024 * 1024
+        buffer_size = meta_size * 10
+        results: List[Dict[str, Any]] = []
+
+        def read_more(size: int) -> bytes:
+            return stream.read(size) or b""
+
+        workbuffer = bytearray(read_more(buffer_size))
+        meta_start = 0
+
+        def parse_json_object() -> Tuple[Dict[str, Any], int]:
+            nonlocal workbuffer, meta_start
+            start_count = 0
+            end_count = 0
+            meta_end = meta_start
+            i = meta_start
+
+            while True:
+                if meta_end - meta_start > meta_size:
+                    raise RuntimeError("Metadata too large: closing brace not found")
+                if i >= len(workbuffer):
+                    more = read_more(buffer_size)
+                    if not more:
+                        raise RuntimeError("Metadata start not found")
+                    workbuffer.extend(more)
+                sym = workbuffer[i]
+                meta_end += 1
+                if sym == ord("{"):
+                    start_count += 1
+                if sym == ord("}"):
+                    end_count += 1
+                if start_count == 0:
+                    raise RuntimeError("Metadata start not found")
+                if start_count == end_count:
+                    break
+                i += 1
+
+            meta_bytes = bytes(workbuffer[meta_start:meta_end])
+            meta = json.loads(meta_bytes)
+            return meta, meta_end
+
+        def validate_path(path: str) -> None:
+            if not validate_paths:
+                return
+            if "../" in path or "..\\" in path or ":" in path:
+                raise RuntimeError("File path contains illegal characters")
+
+        while True:
+            if meta_start >= len(workbuffer):
+                workbuffer = bytearray(read_more(buffer_size))
+                meta_start = 0
+                if not workbuffer:
+                    break
+
+            meta, meta_end = parse_json_object()
+            path = str(meta.get("Path", ""))
+            validate_path(path)
+            size = int(meta.get("Size", 0))
+
+            rel_path = path.lstrip("/").replace("\\", "/")
+            if base_prefix and rel_path.startswith(base_prefix):
+                rel_path = rel_path[len(base_prefix) :]
+            out_path = os.path.join(out_dir, rel_path)
+            os.makedirs(os.path.dirname(out_path) or out_dir, exist_ok=True)
+
+            file_written = 0
+            data_start = meta_end
+            available = max(0, len(workbuffer) - data_start)
+            first_chunk = min(available, size)
+            if first_chunk:
+                with open(out_path, "wb") as fh:
+                    fh.write(workbuffer[data_start : data_start + first_chunk])
+                    file_written += first_chunk
+                    while file_written < size:
+                        chunk = read_more(min(write_chunk_size, size - file_written))
+                        if not chunk:
+                            raise RuntimeError(
+                                "Unexpected EOF while reading file payload"
+                            )
+                        fh.write(chunk)
+                        file_written += len(chunk)
+            else:
+                with open(out_path, "wb") as fh:
+                    while file_written < size:
+                        chunk = read_more(min(write_chunk_size, size - file_written))
+                        if not chunk:
+                            raise RuntimeError(
+                                "Unexpected EOF while reading file payload"
+                            )
+                        fh.write(chunk)
+                        file_written += len(chunk)
+
+            results.append({"metadata": meta, "path": out_path})
+
+            meta_start = data_start + file_written
+            if meta_start > 0 and meta_start < len(workbuffer):
+                workbuffer = workbuffer[meta_start:]
+                meta_start = 0
+
+        return results
 
     def delete(self, remote_path: str) -> requests.Response:
         """Delete a remote file."""
