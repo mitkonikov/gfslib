@@ -86,6 +86,51 @@ def test_integration_upload_download_delete_roundtrip() -> None:
 
 
 @pytest.mark.integration
+def test_integration_download_single_and_many_use_same_destination_folder() -> None:
+    url, key = _skip_unless_env()
+
+    svc = StorageServices(url)
+    svc.set_api_key(key)
+
+    with tempfile.TemporaryDirectory() as td:
+        base = Path(td)
+        local = base / "same_folder.txt"
+        content = "same-folder-download-content"
+        local.write_text(content)
+
+        remote = "gfslib/download-destination/same_folder/same_folder.txt"
+        up = svc.upload(remote, str(local))
+        assert up.status_code in (200, 201, 204)
+
+        try:
+            single_dir = base / "single"
+            many_dir = base / "many"
+            single_dir.mkdir()
+            many_dir.mkdir()
+
+            single_dest = single_dir / local.name
+            data = svc.download(remote, single_dest)
+            assert data == b""
+
+            results = svc.download([remote], dest=str(many_dir))
+            assert isinstance(results, list)
+            assert len(results) == 1
+
+            assert single_dest.exists()
+            assert single_dest.read_text() == content
+
+            many_dest = many_dir / local.name
+            assert many_dest.exists()
+            assert many_dest.read_text() == content
+
+            unexpected_parent = many_dir / "same_folder"
+            assert not unexpected_parent.exists()
+        finally:
+            d = svc.delete(remote)
+            assert d.status_code in (200, 204)
+
+
+@pytest.mark.integration
 def test_integration_upload_get_metadata_and_delete() -> None:
     url, key = _skip_unless_env()
 
@@ -406,9 +451,12 @@ def test_integration_download_multiple_files() -> None:
         assert len(results) == len(remote_paths)
 
         for rel, content in files.items():
-            out_path = out_dir / Path(rel)
+            out_path = out_dir / Path(rel).name
             assert out_path.exists()
             assert out_path.read_text() == content
+
+        assert not (out_dir / "sub").exists()
+        assert not (out_dir / "deep").exists()
 
         for remote in remote_paths:
             d = svc.delete(remote)
