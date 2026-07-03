@@ -315,10 +315,17 @@ class StorageServices:
 
         return results
 
-    def delete(self, remote_path: str) -> requests.Response:
-        """Delete a remote file."""
-        url = self._file_url(remote_path)
-        return requests.delete(url, headers=self._headers(), timeout=self.timeout)
+    def delete(self, remote_path: str | List[str]) -> requests.Response:
+        """Remove one or more remote files or directories recursively."""
+        paths = [remote_path] if isinstance(remote_path, str) else list(remote_path)
+        url = f"{self.base_url}/remove"
+        body = json.dumps(paths)
+        headers = self._headers(
+            {"Content-Type": "application/json", "Content-Length": str(len(body))}
+        )
+        return requests.post(
+            url, headers=headers, data=body.encode("utf-8"), timeout=self.timeout
+        )
 
     def metadata(self, filepaths: Iterable[str], ignore_sha: bool = False) -> Any:
         """Get metadata for the provided filepaths."""
