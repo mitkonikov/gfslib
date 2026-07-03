@@ -2,10 +2,14 @@ import os
 import tempfile
 import pytest
 import hashlib
+import uuid
 
 from gfslib.storage.client import StorageServices
 from pathlib import Path
 from typing import Optional, Tuple, Any, Dict
+
+REMOVE_STATUS_DELETED = 2
+REMOVE_STATUS_NOT_FOUND = 3
 
 
 def _load_dotenv_if_available() -> None:
@@ -37,6 +41,26 @@ def _skip_unless_env() -> Tuple[str, str]:
             "GFSLIB_STORAGE_URL or GFSLIB_API_KEY not set; skipping integration tests"
         )
     return url, key
+
+
+def _assert_remove_response(response: Any, expected_len: int) -> list[dict[str, Any]]:
+    assert response.status_code == 200
+    payload = response.json()
+    assert isinstance(payload, list)
+    assert len(payload) == expected_len
+
+    for item in payload:
+        assert isinstance(item, dict)
+        assert isinstance(item.get("path"), str)
+        assert isinstance(item.get("status"), int)
+        error = item.get("error")
+        assert error is None or isinstance(error, str)
+
+    return payload
+
+
+def _remove_statuses(payload: list[dict[str, Any]]) -> list[int]:
+    return [item["status"] for item in payload]
 
 
 @pytest.mark.integration
@@ -83,6 +107,121 @@ def test_integration_upload_download_delete_roundtrip() -> None:
         # delete
         d = svc.delete("gfslib/gfslib_test.txt")
         assert d.status_code in (200, 204)
+
+
+@pytest.mark.integration
+def test_integration_delete_single_file_remove_response() -> None:
+    url, key = _skip_unless_env()
+
+    svc = StorageServices(url)
+    svc.set_api_key(key)
+
+    with tempfile.TemporaryDirectory() as td:
+        local = Path(td) / "single_remove.txt"
+        local.write_text("single-remove-content")
+        remote = f"remove-tests/{uuid.uuid4().hex}/single_remove.txt"
+
+        up = svc.upload(remote, str(local))
+        assert up.status_code in (200, 201, 204)
+
+        payload = _assert_remove_response(svc.delete(remote), expected_len=1)
+        assert payload[0]["path"].replace("\\", "/").endswith(remote)
+        assert payload[0]["status"] == REMOVE_STATUS_DELETED
+
+
+@pytest.mark.integration
+def test_integration_delete_multiple_files_with_list_remove_response() -> None:
+    url, key = _skip_unless_env()
+
+    svc = StorageServices(url)
+    svc.set_api_key(key)
+
+    with tempfile.TemporaryDirectory() as td:
+        base = Path(td)
+        remote_root = f"remove-tests/{uuid.uuid4().hex}"
+        files = {
+            "one.txt": "one",
+            "sub/two.txt": "two",
+            "sub/deep/three.txt": "three",
+        }
+        remote_paths = []
+
+        for rel, content in files.items():
+            local = base / Path(rel)
+            local.parent.mkdir(parents=True, exist_ok=True)
+            local.write_text(content)
+            rel_norm = rel.replace("\\", "/")
+            remote = f"{remote_root}/{rel_norm}"
+            up = svc.upload(remote, str(local))
+            assert up.status_code in (200, 201, 204)
+            remote_paths.append(remote)
+
+        payload = _assert_remove_response(svc.delete(remote_paths), expected_len=3)
+        assert _remove_statuses(payload) == [REMOVE_STATUS_DELETED] * 3
+
+
+@pytest.mark.integration
+def test_integration_delete_parent_directory_before_subpaths() -> None:
+    url, key = _skip_unless_env()
+
+    svc = StorageServices(url)
+    svc.set_api_key(key)
+
+    with tempfile.TemporaryDirectory() as td:
+        local = Path(td) / "nested.txt"
+        local.write_text("nested-content")
+
+        remote_root = f"remove-tests/{uuid.uuid4().hex}"
+        remote_subdir = f"{remote_root}/sub"
+        remote_file = f"{remote_subdir}/nested.txt"
+
+        up = svc.upload(remote_file, str(local))
+        assert up.status_code in (200, 201, 204)
+
+        parent_payload = _assert_remove_response(
+            svc.delete(remote_root), expected_len=1
+        )
+        assert _remove_statuses(parent_payload) == [REMOVE_STATUS_DELETED]
+
+        stale_payload = _assert_remove_response(
+            svc.delete([remote_subdir, remote_file]), expected_len=2
+        )
+        assert _remove_statuses(stale_payload) == [REMOVE_STATUS_NOT_FOUND] * 2
+
+
+@pytest.mark.integration
+def test_integration_delete_subpaths_before_parent_directory() -> None:
+    url, key = _skip_unless_env()
+
+    svc = StorageServices(url)
+    svc.set_api_key(key)
+
+    with tempfile.TemporaryDirectory() as td:
+        base = Path(td)
+        remote_root = f"remove-tests/{uuid.uuid4().hex}"
+        files = {
+            "root.txt": "root",
+            "sub/nested.txt": "nested",
+        }
+
+        for rel, content in files.items():
+            local = base / Path(rel)
+            local.parent.mkdir(parents=True, exist_ok=True)
+            local.write_text(content)
+            rel_norm = rel.replace("\\", "/")
+            remote = f"{remote_root}/{rel_norm}"
+            up = svc.upload(remote, str(local))
+            assert up.status_code in (200, 201, 204)
+
+        subdir_payload = _assert_remove_response(
+            svc.delete(f"{remote_root}/sub"), expected_len=1
+        )
+        assert _remove_statuses(subdir_payload) == [REMOVE_STATUS_DELETED]
+
+        parent_payload = _assert_remove_response(
+            svc.delete(remote_root), expected_len=1
+        )
+        assert _remove_statuses(parent_payload) == [REMOVE_STATUS_DELETED]
 
 
 @pytest.mark.integration
