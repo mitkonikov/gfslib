@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Improved
 
  - Delete method can now handle multiple files/folders in a single request.
+ - Improved unit tests code coverage to 100%.
 
 ## Release 0.3.0 - 2026-06-28
 
