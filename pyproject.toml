@@ -1,6 +1,6 @@
 [project]
 name = "gfslib"
-version = "0.3.0"
+version = "0.3.1"
 packages = [{ include = "gfslib", from = "src" }]
 description = "Python library for communication to the GeMMA Fusion Server"
 authors = [

@@ -60,10 +60,16 @@ meta = svc.metadata(["folder/sample.txt"], ignore_sha=False)
 print(meta)
 ```
 
-## Delete a file
+## Delete a single/multiple files/folders
 
 ```python
 svc.delete("folder/sample.txt")
+
+svc.delete([
+    "folder_one",
+    "folder_two/sample.txt",
+    "folder_two/sub/other.txt",
+])
 ```
 
 ## Sync local folder to remote
