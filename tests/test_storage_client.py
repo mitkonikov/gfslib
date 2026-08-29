@@ -117,8 +117,21 @@ def test_download_single_file_writes_destination(
     assert dest.read_bytes() == b"downloaded"
 
 
-def test_download_many_uses_ignore_sha_query_and_deserializes(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize(
+    ("ignore_sha", "ignore_missing", "expected_query"),
+    [
+        (False, False, ""),
+        (True, False, "?ignoreSha=True"),
+        (False, True, "?ignoreMissingFiles=True"),
+        (True, True, "?ignoreSha=True&ignoreMissingFiles=True"),
+    ],
+)
+def test_download_many_uses_query_options_and_deserializes(
+    ignore_sha: bool,
+    ignore_missing: bool,
+    expected_query: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     calls: list[dict[str, Any]] = []
 
@@ -129,9 +142,14 @@ def test_download_many_uses_ignore_sha_query_and_deserializes(
     monkeypatch.setattr(requests, "post", fake_post)
 
     svc = StorageServices("https://example.test/storage")
-    results = svc.download(["remote/folder/file.txt"], dest=tmp_path, ignore_sha=True)
+    results = svc.download(
+        ["remote/folder/file.txt"],
+        dest=tmp_path,
+        ignore_sha=ignore_sha,
+        ignore_missing=ignore_missing,
+    )
 
-    assert calls[0]["url"] == "https://example.test/storage/download?ignoreSha=True"
+    assert calls[0]["url"] == f"https://example.test/storage/download{expected_query}"
     assert (tmp_path / "file.txt").read_bytes() == b"data"
     assert isinstance(results, list)
     assert results[0]["metadata"]["Path"] == "remote/folder/file.txt"

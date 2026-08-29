@@ -51,6 +51,9 @@ paths = [
     "folder/sub/other.txt",
 ]
 svc.download(paths, dest="./downloads")
+
+# skip paths that do not exist instead of failing the whole batch
+svc.download(paths, dest="./downloads", ignore_missing=True)
 ```
 
 ## Metadata

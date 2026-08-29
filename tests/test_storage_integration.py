@@ -600,3 +600,35 @@ def test_integration_download_multiple_files() -> None:
         for remote in remote_paths:
             d = svc.delete(remote)
             assert d.status_code in (200, 204)
+
+
+@pytest.mark.integration
+def test_integration_download_multiple_files_can_ignore_missing() -> None:
+    url, key = _skip_unless_env()
+
+    svc = StorageServices(url)
+    svc.set_api_key(key)
+
+    with tempfile.TemporaryDirectory() as td:
+        base = Path(td)
+        local = base / "existing.txt"
+        content = "ignore-missing-download-content"
+        local.write_text(content)
+        remote = f"download-tests/{uuid.uuid4().hex}/existing.txt"
+        missing = f"download-tests/{uuid.uuid4().hex}/missing.txt"
+
+        up = svc.upload(remote, str(local))
+        assert up.status_code in (200, 201, 204)
+
+        try:
+            out_dir = base / "out"
+            out_dir.mkdir()
+            results = svc.download([remote, missing], dest=out_dir, ignore_missing=True)
+
+            assert isinstance(results, list)
+            assert len(results) == 1
+            assert (out_dir / "existing.txt").read_text() == content
+            assert not (out_dir / "missing.txt").exists()
+        finally:
+            d = svc.delete(remote)
+            assert d.status_code in (200, 204)

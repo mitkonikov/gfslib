@@ -121,6 +121,7 @@ class StorageServices:
         ignore_sha: bool = False,
         write_chunk_size: int = 10 * 1024 * 1024,
         validate_paths: bool = True,
+        ignore_missing: bool = False,
     ) -> bytes | List[Dict[str, Any]]:
         """Download a file or multiple files.
 
@@ -130,7 +131,8 @@ class StorageServices:
         For multiple files, pass a list of strings in `remote_path` and provide
         `dest` as a destination folder. The server returns a stream in the form
         <METADATA_JSON><FILE><METADATA_JSON><FILE> and the files are written
-        into `dest`.
+        into `dest`. Set `ignore_missing` to skip requested files that do not
+        exist instead of failing the entire multi-file download.
         """
         if isinstance(remote_path, list):
             if dest is None:
@@ -141,6 +143,7 @@ class StorageServices:
                 remote_path,
                 dest_dir=dest,
                 ignore_sha=ignore_sha,
+                ignore_missing=ignore_missing,
                 write_chunk_size=write_chunk_size,
                 validate_paths=validate_paths,
             )
@@ -174,12 +177,18 @@ class StorageServices:
         remote_paths: List[str],
         dest_dir: os.PathLike[str] | str,
         ignore_sha: bool,
+        ignore_missing: bool,
         write_chunk_size: int,
         validate_paths: bool,
     ) -> List[Dict[str, Any]]:
         url = f"{self.base_url}/download"
+        query_params = []
         if ignore_sha:
-            url = f"{url}?ignoreSha=True"
+            query_params.append("ignoreSha=True")
+        if ignore_missing:
+            query_params.append("ignoreMissingFiles=True")
+        if query_params:
+            url = f"{url}?{'&'.join(query_params)}"
 
         body = json.dumps(list(remote_paths))
         headers = self._headers(
